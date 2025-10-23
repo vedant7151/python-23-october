@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Search</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .search-box {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        #searchInput {
+            flex: 1;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            transition: border-color 0.3s;
+        }
+
+        #searchInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        #searchBtn {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        #searchBtn:hover {
+            transform: translateY(-2px);
+        }
+
+        #searchBtn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .hint {
+            color: #666;
+            font-size: 14px;
+            font-style: italic;
+        }
+
+        #message {
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        #message.error {
+            background: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        #message.success {
+            background: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .video-container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: none;
+        }
+
+        .video-info {
+            margin-bottom: 20px;
+        }
+
+        .video-info h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .matched-phrase {
+            color: #667eea;
+            font-weight: bold;
+            font-size: 1.5em;
+            text-transform: capitalize;
+        }
+
+        .video-player {
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            gap: 10px;
+        }
+
+        .control-btn {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+
+        .control-btn:hover:not(:disabled) {
+            background: #764ba2;
+        }
+
+        .control-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .progress-info {
+            color: #666;
+            font-weight: bold;
+            text-align: center;
+            flex: 1;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .auto-play-toggle {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .auto-play-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        .auto-play-toggle label {
+            cursor: pointer;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 Video Search</h1>
+            <p>Search for words or phrases to find matching videos</p>
+        </div>
+
+        <div class="search-box">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Enter sentence (e.g., 'hello good morning', 'thank you good night')"
+                    autocomplete="off"
+                >
+                <button id="searchBtn">Search</button>
+            </div>
+            <p class="hint">💡 Tip: Type full sentences! Each matching phrase/word will play in order</p>
+        </div>
+
+        <div id="message"></div>
+        <div class="loader" id="loader"></div>
+
+        <div class="video-container" id="videoContainer">
+            <div class="video-info">
+                <h3>Now Playing: <span class="matched-phrase" id="matchedPhrase"></span></h3>
+            </div>
+            <video id="videoPlayer" class="video-player" controls autoplay>
+                Your browser does not support the video tag.
+            </video>
+            <div class="controls">
+                <button class="control-btn" id="prevBtn" disabled>⏮ Previous</button>
+                <span class="progress-info" id="progressInfo">Video 1 of 1</span>
+                <button class="control-btn" id="nextBtn" disabled>Next ⏭</button>
+            </div>
+            <div class="auto-play-toggle">
+                <input type="checkbox" id="autoPlayToggle" checked>
+                <label for="autoPlayToggle">Auto-play next video</label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let videos = [];
+        let currentIndex = 0;
+        let autoPlay = true;
+
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const message = document.getElementById('message');
+        const loader = document.getElementById('loader');
+        const videoContainer = document.getElementById('videoContainer');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const matchedPhrase = document.getElementById('matchedPhrase');
+        const progressInfo = document.getElementById('progressInfo');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const autoPlayToggle = document.getElementById('autoPlayToggle');
+
+        // Search on button click
+        searchBtn.addEventListener('click', searchVideos);
+
+        // Search on Enter key
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchVideos();
+            }
+        });
+
+        // Previous button
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                playVideo(currentIndex);
+            }
+        });
+
+        // Next button
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < videos.length - 1) {
+                currentIndex++;
+                playVideo(currentIndex);
+            }
+        });
+
+        // Auto-play toggle
+        autoPlayToggle.addEventListener('change', (e) => {
+            autoPlay = e.target.checked;
+        });
+
+        // Auto-play next video when current ends
+        videoPlayer.addEventListener('ended', () => {
+            if (autoPlay && currentIndex < videos.length - 1) {
+                currentIndex++;
+                playVideo(currentIndex);
+            }
+        });
+
+        async function searchVideos() {
+            const query = searchInput.value.trim();
+            
+            if (!query) {
+                showMessage('Please enter a search query', 'error');
+                return;
+            }
+
+            // Show loader
+            loader.style.display = 'block';
+            message.style.display = 'none';
+            videoContainer.style.display = 'none';
+            searchBtn.disabled = true;
+
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Search failed');
+                }
+
+                videos = data.videos;
+                currentIndex = 0;
+                playVideo(0);
+                
+                const videoText = videos.length === 1 ? 'video' : 'videos';
+                showMessage(`Found ${videos.length} ${videoText} matching your query`, 'success');
+
+            } catch (error) {
+                showMessage(error.message, 'error');
+            } finally {
+                loader.style.display = 'none';
+                searchBtn.disabled = false;
+            }
+        }
+
+        function playVideo(index) {
+            const video = videos[index];
+            
+            videoPlayer.src = video.cloudinary_url;
+            matchedPhrase.textContent = video.matched_phrase;
+            progressInfo.textContent = `Video ${index + 1} of ${videos.length}`;
+            
+            // Update button states
+            prevBtn.disabled = index === 0;
+            nextBtn.disabled = index === videos.length - 1;
+            
+            videoContainer.style.display = 'block';
+            videoPlayer.play();
+        }
+
+        function showMessage(text, type) {
+            message.textContent = text;
+            message.className = type;
+            message.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    message.style.display = 'none';
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
