@@ -185,6 +185,6 @@ def api_videos():
     
     return jsonify({"videos": api_videos})
 
-# ---------- Local Run ----------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+# # ---------- Local Run ----------
+# if __name__ == "__main__":
+#     app.run(host="0.0.0.0", port=5000)
