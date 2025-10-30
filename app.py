@@ -3,15 +3,11 @@ import psycopg2
 from psycopg2 import sql
 import os
 from dotenv import load_dotenv
-from flask_cors import CORS
-
-
 
 # ---------- Load Environment Variables ----------
 load_dotenv()
-
 app = Flask(__name__)
-CORS(app, origins="*")  # or restrict to your domain later
+
 # ---------- Database Connection ----------
 def get_connection():
     return psycopg2.connect(os.getenv("DATABASE_URL"), sslmode="require")
@@ -36,11 +32,9 @@ HTML_TEMPLATE = """
         <input type="text" name="query" placeholder="Enter words or phrases..." required>
         <button type="submit">Search</button>
     </form>
-
     {% if videos %}
         <h3>Results:</h3>
         <div id="video-container"></div>
-
         <script>
             const videos = {{ videos|tojson }};
             let current = 0;
@@ -54,16 +48,13 @@ HTML_TEMPLATE = """
                     container.innerHTML = "<p><b>✅ All videos played once.</b></p>";
                     return;
                 }
-
                 const container = document.getElementById("video-container");
-                container.innerHTML = `
-                    <p><b>${escapeHtml(videos[index].file_name)}</b></p>
+                container.innerHTML = `<p><b>${escapeHtml(videos[index].file_name)}</b></p>
                     <video id="videoPlayer" controls autoplay playsinline>
                         <source src="${escapeHtml(videos[index].cloudinary_url)}" type="video/mp4">
                         Your browser does not support the video tag.
-                    </video>
-                `;
-
+                    </video>`;
+                
                 isHandlingEnd = false;
                 const video = document.getElementById("videoPlayer");
                 if (!video) return;
@@ -107,6 +98,59 @@ HTML_TEMPLATE = """
 </html>
 """
 
+# ---------- Search Function ----------
+def search_videos(user_input):
+    """
+    Search for videos by matching phrases in the input sentence.
+    Tries to find the longest matching phrases first (greedy approach).
+    """
+    videos = []
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get all video names from database for matching
+    cursor.execute("SELECT file_name, cloudinary_url FROM videos")
+    all_videos = cursor.fetchall()
+    
+    # Create a dictionary of normalized names -> video data
+    video_dict = {}
+    for file_name, url in all_videos:
+        # Remove .mp4 extension and convert underscores to spaces for matching
+        normalized_name = file_name.replace('.mp4', '').replace('_', ' ').lower()
+        video_dict[normalized_name] = {"file_name": file_name, "cloudinary_url": url}
+    
+    # Sort video names by length (longest first) for greedy matching
+    sorted_names = sorted(video_dict.keys(), key=len, reverse=True)
+    
+    # Process the input sentence
+    remaining_input = user_input.lower().strip()
+    
+    while remaining_input:
+        matched = False
+        
+        # Try to match the longest possible phrase from the beginning
+        for video_name in sorted_names:
+            if remaining_input.startswith(video_name):
+                # Found a match!
+                videos.append(video_dict[video_name])
+                # Remove the matched part and any trailing spaces
+                remaining_input = remaining_input[len(video_name):].strip()
+                matched = True
+                break
+        
+        if not matched:
+            # No match found for current position, skip one word
+            words = remaining_input.split(maxsplit=1)
+            if len(words) > 1:
+                remaining_input = words[1]
+            else:
+                break  # No more words to process
+    
+    cursor.close()
+    conn.close()
+    
+    return videos
+
 # ---------- Web Frontend ----------
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -115,22 +159,11 @@ def index():
     
     if request.method == "POST":
         user_input = request.form["query"].strip().lower()
-        words = [w.replace(" ", "_") for w in user_input.split()]
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        for word in words:
-            cursor.execute(sql.SQL("SELECT file_name, cloudinary_url FROM videos WHERE file_name ILIKE %s"), [f"%{word}%"])
-            result = cursor.fetchone()
-            if result:
-                videos.append({"file_name": result[0], "cloudinary_url": result[1]})
-            else:
-                message += f"No match for '{word.replace('_', ' ')}'. "
-
-        cursor.close()
-        conn.close()
-
+        videos = search_videos(user_input)
+        
+        if not videos:
+            message = f"No match found for '{user_input}'."
+    
     return render_template_string(HTML_TEMPLATE, videos=videos, message=message)
 
 # ---------- Mobile API ----------
@@ -138,30 +171,20 @@ def index():
 def api_videos():
     data = request.get_json()
     user_input = data.get("query", "").strip().lower()
-
+    
     if not user_input:
         return jsonify({"error": "No query provided"}), 400
-
-    words = [w.replace(" ", "_") for w in user_input.split()]
-    videos = []
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    for word in words:
-        cursor.execute(sql.SQL("SELECT file_name, cloudinary_url FROM videos WHERE file_name ILIKE %s"), [f"%{word}%"])
-        result = cursor.fetchone()
-        if result:
-            videos.append({"file_name": result[0], "url": result[1]})
-
-    cursor.close()
-    conn.close()
-
+    
+    videos = search_videos(user_input)
+    
     if not videos:
         return jsonify({"message": "No matches found"}), 404
+    
+    # Format for API response (using 'url' instead of 'cloudinary_url')
+    api_videos = [{"file_name": v["file_name"], "url": v["cloudinary_url"]} for v in videos]
+    
+    return jsonify({"videos": api_videos})
 
-    return jsonify({"videos": videos})
-
-# # ---------- Local Run ----------
-# if __name__ == "__main__":
-#     app.run(host="0.0.0.0", port=5000)
+# ---------- Local Run ----------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
