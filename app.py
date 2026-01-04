@@ -3,10 +3,14 @@ import psycopg2
 from psycopg2 import sql
 import os
 from dotenv import load_dotenv
+import openai
+import tempfile
 
 # ---------- Load Environment Variables ----------
 load_dotenv()
 app = Flask(__name__)
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 
 # ---------- Database Connection ----------
 def get_connection():
@@ -97,6 +101,34 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+# ---------- Speech to text ----------
+@app.route("/api/audio-to-text", methods=["POST"])
+def audio_to_text():
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files["audio"]
+
+    # Save temporarily
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+        audio_file.save(tmp.name)
+
+        # Whisper API call
+        transcript = openai.Audio.transcribe(
+            model="whisper-1",
+            file=open(tmp.name, "rb")
+        )
+
+    raw_text = transcript["text"]
+
+    # ---- minimal processing (same rule as before) ----
+    processed_text = " ".join(raw_text.strip().lower().split())
+
+    return jsonify({
+        "original_text": raw_text,
+        "processed_text": processed_text
+    })
+
 
 # ---------- Search Function ----------
 def search_videos(user_input):
