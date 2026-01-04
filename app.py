@@ -101,34 +101,46 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
-# ---------- Speech to text ----------
+
 @app.route("/api/audio-to-text", methods=["POST"])
 def audio_to_text():
     if "audio" not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
 
     audio_file = request.files["audio"]
+    
+    # 1. Get the original extension (e.g., .m4a)
+    _, ext = os.path.splitext(audio_file.filename)
+    if not ext:
+        ext = ".m4a" # Default fallback
 
-    # Save temporarily
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-        audio_file.save(tmp.name)
+    # 2. Use the correct suffix so OpenAI knows the format
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        audio_file.save(tmp)
+        tmp_path = tmp.name
 
-        # Whisper API call
-        transcript = openai.Audio.transcribe(
-            model="whisper-1",
-            file=open(tmp.name, "rb")
-        )
+    try:
+        # 3. Open the saved file and transcribe
+        with open(tmp_path, "rb") as f:
+            transcript = openai.Audio.transcribe(
+                model="whisper-1",
+                file=f
+            )
+        
+        raw_text = transcript["text"]
+        processed_text = " ".join(raw_text.strip().lower().split())
 
-    raw_text = transcript["text"]
-
-    # ---- minimal processing (same rule as before) ----
-    processed_text = " ".join(raw_text.strip().lower().split())
-
-    return jsonify({
-        "original_text": raw_text,
-        "processed_text": processed_text
-    })
-
+        return jsonify({
+            "original_text": raw_text,
+            "processed_text": processed_text
+        })
+    except Exception as e:
+        print(f"Transcription Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        # 4. Clean up the temp file manually since we used delete=False
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 # ---------- Search Function ----------
 def search_videos(user_input):
