@@ -4,7 +4,7 @@ from psycopg2 import sql
 import os
 from dotenv import load_dotenv
 # import openai
-import google.generativeai as genai
+from google import genai
 from flask import Flask, request, jsonify
 # import tempfile
 
@@ -13,8 +13,9 @@ load_dotenv()
 app = Flask(__name__)
 # openai.api_key = os.getenv("OPENAI_API_KEY")
 
-genai.configure(api_key="AIzaSyCXt4oF_IkpK6jFtM8HYN72RJMyeScZogU")
-model = genai.GenerativeModel('gemini-3-flash-preview')
+
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
 
 
 # ---------- Database Connection ----------
@@ -212,29 +213,32 @@ def index():
         # --- GEMINI PREPROCESSING STEP ---
         # Everything from here down to the search must be indented
         try:
-            prompt = (
-                f"Strictly fix the spelling of the following text. "
-                f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
-                f"Input: '{user_input}'"
+            
+            # print("Attempting to call Gemini 3...")
+            
+            # The new way to generate content
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=(
+                    f"Strictly fix the spelling of the following text. "
+                    f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
+                    f"Input: '{user_input}'"
+                )
             )
-            # print("Attempting to call Gemini...") # Add this to see if it starts
             
-            response = model.generate_content(prompt)
+            # Access the text from the response object
             search_term = response.text.strip().strip('"').strip("'").lower()
-            
-            # print(f"SUCCESS! Corrected term: {search_term}") 
+            # print(f"SUCCESS! Corrected term: {search_term}")
             
         except Exception as e:
-            # THIS IS WHERE YOUR ERROR MESSAGE WILL SHOW UP
-            # print("\n!!! GEMINI ERROR DETECTED !!!")
-            # print(f"Error details: {e}") 
-            # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-            
+            # print(f"!!! GEMINI ERROR: {e} !!!")
             search_term = user_input.lower()
-        
-        # --- SEARCH STEP ---
+        # ----------------------------------------------
+
         videos = search_videos(search_term)
-        
+            # print(f"SUCCESS! Corrected term: {search_term}") 
+            
+               
         if not videos:
             message = f"No match found for '{search_term}'."
             
@@ -252,14 +256,14 @@ def api_videos():
     # --- GEMINI PREPROCESSING STEP ---
     try:
         # We prompt Gemini to ONLY return the corrected search term
-        prompt = (
-        f"Strictly fix the spelling of the following text. "
-        f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
-        # f"Example: 'howe are you' -> 'how are you'. "
-        # f"Example: 'howe are  you hood morningds' -> 'how are you good morning'. "
-        f"Input: '{user_input}'"
-    )
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=(
+                    f"Strictly fix the spelling of the following text. "
+                    f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
+                    f"Input: '{user_input}'"
+                )
+            )
         search_term = response.text.strip().lower()
         # print(search_term)
     except Exception as e:
