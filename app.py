@@ -3,13 +3,18 @@ import psycopg2
 from psycopg2 import sql
 import os
 from dotenv import load_dotenv
-import openai
-import tempfile
+# import openai
+import google.generativeai as genai
+from flask import Flask, request, jsonify
+# import tempfile
 
 # ---------- Load Environment Variables ----------
 load_dotenv()
 app = Flask(__name__)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# openai.api_key = os.getenv("OPENAI_API_KEY")
+
+genai.configure(api_key="AIzaSyCXt4oF_IkpK6jFtM8HYN72RJMyeScZogU")
+model = genai.GenerativeModel('gemini-3-flash-preview')
 
 
 # ---------- Database Connection ----------
@@ -53,7 +58,7 @@ HTML_TEMPLATE = """
                     return;
                 }
                 const container = document.getElementById("video-container");
-                container.innerHTML = `<p><b>${escapeHtml(videos[index].file_name)}</b></p>
+                container.innerHTML = `<p><b>${escapeHtml(videos[index].file_name.replace('.mp4', ''))}</b></p>
                     <video id="videoPlayer" controls autoplay playsinline>
                         <source src="${escapeHtml(videos[index].cloudinary_url)}" type="video/mp4">
                         Your browser does not support the video tag.
@@ -102,45 +107,45 @@ HTML_TEMPLATE = """
 </html>
 """
 
-@app.route("/api/audio-to-text", methods=["POST"])
-def audio_to_text():
-    if "audio" not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
+# @app.route("/api/audio-to-text", methods=["POST"])
+# def audio_to_text():
+#     if "audio" not in request.files:
+#         return jsonify({"error": "No audio file provided"}), 400
 
-    audio_file = request.files["audio"]
+#     audio_file = request.files["audio"]
     
-    # 1. Get the original extension (e.g., .m4a)
-    _, ext = os.path.splitext(audio_file.filename)
-    if not ext:
-        ext = ".m4a" # Default fallback
+#     # 1. Get the original extension (e.g., .m4a)
+#     _, ext = os.path.splitext(audio_file.filename)
+#     if not ext:
+#         ext = ".m4a" # Default fallback
 
-    # 2. Use the correct suffix so OpenAI knows the format
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-        audio_file.save(tmp)
-        tmp_path = tmp.name
+#     # 2. Use the correct suffix so OpenAI knows the format
+#     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+#         audio_file.save(tmp)
+#         tmp_path = tmp.name
 
-    try:
-        # 3. Open the saved file and transcribe
-        with open(tmp_path, "rb") as f:
-            transcript = openai.Audio.transcribe(
-                model="whisper-1",
-                file=f
-            )
+#     try:
+#         # 3. Open the saved file and transcribe
+#         with open(tmp_path, "rb") as f:
+#             transcript = openai.Audio.transcribe(
+#                 model="whisper-1",
+#                 file=f
+#             )
         
-        raw_text = transcript["text"]
-        processed_text = " ".join(raw_text.strip().lower().split())
+#         raw_text = transcript["text"]
+#         processed_text = " ".join(raw_text.strip().lower().split())
 
-        return jsonify({
-            "original_text": raw_text,
-            "processed_text": processed_text
-        })
-    except Exception as e:
-        print(f"Transcription Error: {e}")
-        return jsonify({"error": str(e)}), 500
-    finally:
-        # 4. Clean up the temp file manually since we used delete=False
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+#         return jsonify({
+#             "original_text": raw_text,
+#             "processed_text": processed_text
+#         })
+#     except Exception as e:
+#         print(f"Transcription Error: {e}")
+#         return jsonify({"error": str(e)}), 500
+#     finally:
+#         # 4. Clean up the temp file manually since we used delete=False
+#         if os.path.exists(tmp_path):
+#             os.remove(tmp_path)
 
 # ---------- Search Function ----------
 def search_videos(user_input):
@@ -203,32 +208,77 @@ def index():
     
     if request.method == "POST":
         user_input = request.form["query"].strip().lower()
-        videos = search_videos(user_input)
+        
+        # --- GEMINI PREPROCESSING STEP ---
+        # Everything from here down to the search must be indented
+        try:
+            prompt = (
+                f"Strictly fix the spelling of the following text. "
+                f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
+                f"Input: '{user_input}'"
+            )
+            # print("Attempting to call Gemini...") # Add this to see if it starts
+            
+            response = model.generate_content(prompt)
+            search_term = response.text.strip().strip('"').strip("'").lower()
+            
+            # print(f"SUCCESS! Corrected term: {search_term}") 
+            
+        except Exception as e:
+            # THIS IS WHERE YOUR ERROR MESSAGE WILL SHOW UP
+            # print("\n!!! GEMINI ERROR DETECTED !!!")
+            # print(f"Error details: {e}") 
+            # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+            
+            search_term = user_input.lower()
+        
+        # --- SEARCH STEP ---
+        videos = search_videos(search_term)
         
         if not videos:
-            message = f"No match found for '{user_input}'."
-    
+            message = f"No match found for '{search_term}'."
+            
     return render_template_string(HTML_TEMPLATE, videos=videos, message=message)
 
 # ---------- Mobile API ----------
 @app.route("/api/videos", methods=["POST"])
 def api_videos():
     data = request.get_json()
-    user_input = data.get("query", "").strip().lower()
+    user_input = data.get("query", "").strip()
     
     if not user_input:
         return jsonify({"error": "No query provided"}), 400
+
+    # --- GEMINI PREPROCESSING STEP ---
+    try:
+        # We prompt Gemini to ONLY return the corrected search term
+        prompt = (
+        f"Strictly fix the spelling of the following text. "
+        f"Rules: 1. Keep word order identical. 2. Do not add words. 3. Do not remove words. "
+        # f"Example: 'howe are you' -> 'how are you'. "
+        # f"Example: 'howe are  you hood morningds' -> 'how are you good morning'. "
+        f"Input: '{user_input}'"
+    )
+        response = model.generate_content(prompt)
+        search_term = response.text.strip().lower()
+        # print(search_term)
+    except Exception as e:
+        # Fallback: if Gemini fails, use the original input so the search doesn't break
+        # print(f"Gemini Error: {e}")
+        search_term = user_input.lower()
+    # ---------------------------------
     
-    videos = search_videos(user_input)
+    videos = search_videos(search_term)
     
     if not videos:
-        return jsonify({"message": "No matches found"}), 404
+        return jsonify({"message": f"No matches found for '{search_term}'"}), 404
     
-    # Format for API response (using 'url' instead of 'cloudinary_url')
     api_videos = [{"file_name": v["file_name"], "url": v["cloudinary_url"]} for v in videos]
     
-    return jsonify({"videos": api_videos})
-
+    return jsonify({
+        "corrected_query": search_term, 
+        "videos": api_videos
+    })
 # # ---------- Local Run ----------
 # if __name__ == "__main__":
 #     app.run(host="0.0.0.0", port=5000)
