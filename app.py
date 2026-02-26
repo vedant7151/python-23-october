@@ -108,93 +108,59 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# @app.route("/api/audio-to-text", methods=["POST"])
-# def audio_to_text():
-#     if "audio" not in request.files:
-#         return jsonify({"error": "No audio file provided"}), 400
 
-#     audio_file = request.files["audio"]
-    
-#     # 1. Get the original extension (e.g., .m4a)
-#     _, ext = os.path.splitext(audio_file.filename)
-#     if not ext:
-#         ext = ".m4a" # Default fallback
-
-#     # 2. Use the correct suffix so OpenAI knows the format
-#     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-#         audio_file.save(tmp)
-#         tmp_path = tmp.name
-
-#     try:
-#         # 3. Open the saved file and transcribe
-#         with open(tmp_path, "rb") as f:
-#             transcript = openai.Audio.transcribe(
-#                 model="whisper-1",
-#                 file=f
-#             )
-        
-#         raw_text = transcript["text"]
-#         processed_text = " ".join(raw_text.strip().lower().split())
-
-#         return jsonify({
-#             "original_text": raw_text,
-#             "processed_text": processed_text
-#         })
-#     except Exception as e:
-#         print(f"Transcription Error: {e}")
-#         return jsonify({"error": str(e)}), 500
-#     finally:
-#         # 4. Clean up the temp file manually since we used delete=False
-#         if os.path.exists(tmp_path):
-#             os.remove(tmp_path)
 
 # ---------- Search Function ----------
 def search_videos(user_input):
-    """
-    Search for videos by matching phrases in the input sentence.
-    Tries to find the longest matching phrases first (greedy approach).
-    """
     videos = []
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Get all video names from database for matching
     cursor.execute("SELECT file_name, cloudinary_url FROM videos")
     all_videos = cursor.fetchall()
     
-    # Create a dictionary of normalized names -> video data
     video_dict = {}
     for file_name, url in all_videos:
-        # Remove .mp4 extension and convert underscores to spaces for matching
         normalized_name = file_name.replace('.mp4', '').replace('_', ' ').lower()
         video_dict[normalized_name] = {"file_name": file_name, "cloudinary_url": url}
     
-    # Sort video names by length (longest first) for greedy matching
     sorted_names = sorted(video_dict.keys(), key=len, reverse=True)
     
-    # Process the input sentence
     remaining_input = user_input.lower().strip()
     
     while remaining_input:
         matched = False
         
-        # Try to match the longest possible phrase from the beginning
         for video_name in sorted_names:
             if remaining_input.startswith(video_name):
-                # Found a match!
                 videos.append(video_dict[video_name])
-                # Remove the matched part and any trailing spaces
                 remaining_input = remaining_input[len(video_name):].strip()
                 matched = True
                 break
         
         if not matched:
-            # No match found for current position, skip one word
             words = remaining_input.split(maxsplit=1)
-            if len(words) > 1:
-                remaining_input = words[1]
-            else:
-                break  # No more words to process
+            current_word = words[0]
+            
+            # ✅ NEW: Try to spell out the unmatched word letter by letter
+            spelled_out = False
+            letter_videos = []
+            for letter in current_word:
+                if letter == ' ':
+                    continue
+                if letter in video_dict:
+                    letter_videos.append(video_dict[letter])
+                else:
+                    # Even the letter has no video — give up on spelling this word
+                    letter_videos = []
+                    break
+            
+            if letter_videos:
+                videos.extend(letter_videos)
+                spelled_out = True
+            
+            # Move past this word regardless
+            remaining_input = words[1] if len(words) > 1 else ""
     
     cursor.close()
     conn.close()
